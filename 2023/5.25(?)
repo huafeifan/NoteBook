@@ -1,0 +1,249 @@
+//今晚看一下他人写的2048，体会一下他人的代码风格，把感悟都记录下来，最后总结一下
+//git地址 https://github.com/dgkanatsios/2048
+
+
+//先看一下Utilities类
+public static class Utilities //静态类，里面所有方法都是静态方法，如果是我的话会是一个普通类，里面包含许多静态方法
+                              //做成静态类的目的是方式被实例化？
+{
+    public static string[,] GetMatrixFromResourcesData() //只看方法名猜测是读配置，从配置里读一个二维数组
+    {
+        string[,] shapes = new string[Globals.Rows, Globals.Columns]; //Globals应该是常量吧，这么写很有必要
+                                                                      //翻过去看了一下是静态只读字段 public readonly static int Rows = 4;
+                                                                      //不认同，如果是我，一定是 public const int Rows = 4;
+
+        TextAsset txt = Resources.Load("debugLevel") as TextAsset; //配置文件头字母小写吗，无法评价，还需要多看看其他人怎么做
+        string level = txt.text;
+
+        string[] lines = level.Split(new string[] { Environment.NewLine, "\n" }, StringSplitOptions.RemoveEmptyEntries);  //认识了System下的一个新属性Environment.NewLine
+                                                                                                                          //"\n"犯病的时候我会做成常量，但现在我认为没必要，做成常量主要是为了解释用意，"\n"大家都认识
+        for (int row = 0; row < Globals.Rows; row++)
+        {
+            string[] items = lines[row].Split('|');
+            for (int column = 0; column < Globals.Columns; column++) //如果这里是if，需要用中断法写吗，否则缩进行数有些多了？
+            {
+                shapes[row, column] = items[column];
+            }
+        }
+        return shapes;
+
+    }
+
+    public static string ShowMatrixOnConsole(ItemArray matrix) //看方法名是把矩阵打印出来，对ItemArray类比较好奇
+    {
+      ...
+                if (matrix[row, column] != null) //我应该会用三元表达式
+                {
+                    x += matrix[row, column].Value + "|";
+                }
+                else
+                {
+                    x += "X" + "|";
+                }
+            }
+       ...
+    }
+}
+
+
+//看一下GameManager类
+public enum GameState //做一个枚举表示游戏状态，我认为是正确的做法
+                      //没有状态标识的代码非常难以修改
+                      //更进一步或许可以使用状态机
+{
+    Playing,
+    Won
+}
+
+public class GameManager : MonoBehaviour
+{
+    public IInputDetector inputDetector; //接口易拓展
+
+    void InitArrayWithPremadeData() //内容初始化
+    
+        ...
+
+        inputDetector = GetComponent<IInputDetector>(); //做成接口方便拓展，认可！
+
+        ...
+
+
+    public void Initialize()
+    {
+        //相当于一个类，以表格形式存储了预制体，这里将对应位置下的预制体删除了
+        if (matrix != null) //我会加大括号
+            for (int row = 0; row < Globals.Rows; row++)
+                for (int column = 0; column < Globals.Columns; column++)
+                {
+                    if (matrix[row, column] != null && matrix[row, column].GO != null)
+                        Destroy(matrix[row, column].GO);
+                }
+
+        matrix = new ItemArray();
+
+        ...
+    }
+    
+    private void CreateNewItem(int value = 2, int? row = null, int? column = null) //int? 来定义，新奇的方式
+    {
+        int randomRow, randomColumn;
+
+        if (row == null && column == null)
+        {
+            matrix.GetRandomRowColumn(out randomRow, out randomColumn);
+        }
+        else
+        {
+            randomRow = row.Value;
+            randomColumn = column.Value;
+        }
+
+        var newItem = new Item(); //这一定是单个预制体(2\4\8)对应的脚本
+        newItem.Row = randomRow;  //预制体中传入行列数据和值的话，我会考虑作者将数据与ui耦合在一起
+                                  //如果是我，用二维数组记录数据，ui根据二维数组数据来显示，单个Item不需要这些数据
+        newItem.Column = randomColumn;
+        newItem.Value = value;
+
+        GameObject newGo = GetGOBasedOnValue(value);
+        newGo.transform.localScale = new Vector3(0.01f, 0.01f, 0.01f); //为了做动画效果
+
+        newItem.GO = Instantiate(newGo, this.transform.position +
+        new Vector3(randomColumn + randomColumn * distance, randomRow + randomRow * distance, ZIndex),
+        Quaternion.identity) as GameObject;
+
+        newItem.GO.transform.scaleTo(Globals.AnimationDuration, new Vector3(1.0f, 1.0f, 1.0f)); //scaleTo没见过，我会用dotween动画
+
+        matrix[randomRow, randomColumn] = newItem;
+    }
+
+
+    //作者是手动改坐标的，我会直接用unity布局组件
+    private void InitialPositionBackgroundSprites()
+    {
+        for (int row = 0; row < Globals.Rows; row++)
+        {
+            for (int column = 0; column < Globals.Columns; column++)
+            {
+                Instantiate(blankGO, this.transform.position +
+                new Vector3(column + column * distance, row + row * distance, ZIndex), Quaternion.identity);
+            }
+        }
+    }
+
+    // Update is called once per frame
+    void Update()
+    {
+        if (gameState == GameState.Playing)
+        {
+            InputDirection? value = inputDetector.DetectInputDirection(); //对输入做了一层封装，经常见到
+
+
+            if (value.HasValue)
+            {
+                List<ItemMovementDetails> movementDetails = new List<ItemMovementDetails>();
+                //Debug.Log(value);
+                if (value == InputDirection.Left)
+                    movementDetails = matrix.MoveHorizontal(HorizontalMovement.Left); //考虑预制体的左右移动，便于做动画
+                                                                                      //我承认刚才是我大声了，用unity布局组件，对单个预制体传入行列数据，做移动动画时很需要
+                else if (value == InputDirection.Right)
+                    movementDetails = matrix.MoveHorizontal(HorizontalMovement.Right);
+                else if (value == InputDirection.Top)
+                    movementDetails = matrix.MoveVertical(VerticalMovement.Top);
+                else if (value == InputDirection.Bottom)
+                    movementDetails = matrix.MoveVertical(VerticalMovement.Bottom);
+
+
+                if (movementDetails.Count > 0)
+                {
+                    StartCoroutine(AnimateItems(movementDetails)); //如果正在移动中又触发了又该如何
+                }
+                string x = Utilities.ShowMatrixOnConsole(matrix);
+                DebugDisplay(x);
+            }
+        }
+    }
+
+    //动画结合协程来做
+    IEnumerator AnimateItems(IEnumerable<ItemMovementDetails> movementDetails)
+    {
+        List<GameObject> objectsToDestroy = new List<GameObject>();
+        foreach (var item in movementDetails)
+        {
+            //calculate the new position in the world space
+            var newGoPosition = new Vector3(item.NewColumn + item.NewColumn * distance,
+                item.NewRow + item.NewRow * distance, ZIndex);
+
+            //move it there
+            var tween =
+                item.GOToAnimatePosition.transform.positionTo(Globals.AnimationDuration, newGoPosition);
+            tween.autoRemoveOnComplete = true;
+
+            //the scale is != null => this means that this item will also move and duplicate
+            if (item.GOToAnimateScale != null)
+            {
+                var duplicatedItem = matrix[item.NewRow, item.NewColumn];
+
+                UpdateScore(duplicatedItem.Value);
+
+                //check if the item is 2048 => game has ended
+                if (duplicatedItem.Value == 2048)
+                {
+                    gameState = GameState.Won;
+                    yield return new WaitForEndOfFrame(); //WaitForEndOfFrame没用过
+                }
+
+                //create the duplicated item
+                var newGO = Instantiate(GetGOBasedOnValue(duplicatedItem.Value), newGoPosition, Quaternion.identity) as GameObject;
+
+                //make it small in order to animate it
+                newGO.transform.localScale = new Vector3(0.01f, 0.01f, 0.01f);
+                newGO.transform.scaleTo(Globals.AnimationDuration, 1.0f);
+
+                //assign it to the proper position in the array
+                matrix[item.NewRow, item.NewColumn].GO = newGO;
+
+                //we need two animations to happen in chain
+                //first, the movement animation
+                var moveTween = new GoTween(item.GOToAnimateScale.transform, Globals.AnimationDuration, new GoTweenConfig().position(newGoPosition));
+                //then, the scale one
+                var scaleTween = new GoTween(item.GOToAnimateScale.transform, Globals.AnimationDuration, new GoTweenConfig().scale(0.1f));
+
+                var chain = new GoTweenChain();
+                chain.autoRemoveOnComplete = true; //important -> https://github.com/prime31/GoKit/wiki/5.-TweenChains:-Chaining-Multiple-Tweens
+                chain.append(moveTween).appendDelay(Globals.AnimationDuration).append(scaleTween);
+                chain.play();
+
+                //destroy objects after the animations have ended
+                objectsToDestroy.Add(item.GOToAnimateScale);
+                objectsToDestroy.Add(item.GOToAnimatePosition);
+            }
+        }
+
+        CreateNewItem();
+        //hold on till the animations finish
+        yield return new WaitForSeconds(Globals.AnimationDuration * movementDetails.Count() * 3);
+        foreach (var go in objectsToDestroy)
+            Destroy(go);
+    }
+
+    private GameObject GetGOBasedOnValue(int value) //switch 认可！
+    {
+        GameObject newGo = null;
+        switch (value)
+        {
+            case 2: newGo = GO2; break;
+            case 4: newGo = GO4; break;
+            case 8: newGo = GO8; break;
+            case 16: newGo = GO16; break;
+            case 32: newGo = GO32; break;
+            case 64: newGo = GO64; break;
+            case 128: newGo = GO128; break;
+            case 256: newGo = GO256; break;
+            case 512: newGo = GO512; break;
+            case 1024: newGo = GO1024; break;
+            default:
+                throw new System.Exception("Uknown value:" + value);
+        }
+        return newGo;
+    }
+}
